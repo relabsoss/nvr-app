@@ -1,6 +1,6 @@
 nvr-app is a manageable RTSP video client.
 
-Application handle signals:
+Application handles signals:
 1. SIGUSR1 - start video recording
 2. SIGUSR2 - stop video recording, store stream to file MPEG4
 3. SIGINT, SIGTERM - graceful stop

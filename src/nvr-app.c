@@ -90,7 +90,7 @@ on_start_recording(gpointer user_data) {
 
   GDateTime *dt = g_date_time_new_now_local();
 
-  g_object_set (sink, "location", g_date_time_format(dt, "file_%d_%m_%Y_%H_M_%S.mp4"), NULL);
+  g_object_set (sink, "location", g_date_time_format(dt, "file_%d_%m_%Y_%H_%M_%S.mp4"), NULL);
   if (gst_bin_add (GST_BIN( pipeline ), sink) != TRUE) {
     g_printerr ("Sink not added to pipeline.\n");
     return G_SOURCE_CONTINUE;

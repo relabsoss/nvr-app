@@ -1,18 +1,10 @@
-gst-app is a template for writing your own GStreamer-based app.
+nvr-app is a manageable RTSP video client.
 
-The code is deliberately kept simple so that you quickly understand the basics
-of how to set up autotools and your source tree.
+Application handle signals:
+1. SIGUSR1 - start video recording
+2. SIGUSR2 - stop video recording, store stream to file MPEG4
+3. SIGINT, SIGTERM - graceful stop
 
-This template demonstrates :
-- what to do in autogen.sh
-- how to setup configure.ac (your package name and version, GStreamer flags)
-- how to setup your source dir 
-  - main () and main header
-  - supporting source code
-  - Makefile.am
+Video recorded with 5 seconds seek.
 
-The template performs one simple function : loading a pipeline from xml and
-start to iterate it.  Try saving a pipeline from gst-editor, it will play
-with this sample program.
-
-More features might get added to this template later on.
+Video file name template is <file_%d_%m_%Y_%H_M_%S.mp4>.

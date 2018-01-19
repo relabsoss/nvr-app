@@ -1,11 +1,10 @@
-#include <gst/gst.h>
 #include <glib.h>
 #include <glib-unix.h>
 #include <glib/gprintf.h>
-
-#define DEFAULT_MIN_THRESHOLD_TIME 5000000000
+#include "nvr-app.h"
 
 typedef struct _Context {
+  const Options *opts;
   GMainLoop  *loop;
   const gchar *src;
   const gchar *dst;
@@ -132,7 +131,7 @@ on_stop_recording(gpointer user_data) {
 
   context->sink = 0;
 
-  g_object_set (queue, "min-threshold-time", DEFAULT_MIN_THRESHOLD_TIME, NULL);
+  g_object_set (queue, "min-threshold-time", context->opts->nsecs, NULL);
   g_object_set (valve, "drop", TRUE, NULL);
 
   return G_SOURCE_CONTINUE;
@@ -156,11 +155,9 @@ init_signal_handler(Context *context) {
   g_unix_signal_add(SIGTERM, on_stop,  context);
 }
 
-int start_nvr(const char* src, const char* dst) {
+int start_nvr(const Options *opts) {
   Context context;
-  context.src = src;
-  context.dst = dst;
-
+  context.opts = opts;
   GMainLoop  *loop;
 
   GstElement *pipeline;
@@ -196,12 +193,12 @@ int start_nvr(const char* src, const char* dst) {
   }
 
   /* Modify the source's properties */
-  g_print("RTSP location is %s\n", src);
-  g_object_set (source, "location", src, NULL);
+  g_print("RTSP location is %s\n", opts->src);
+  g_object_set (source, "location", opts->src, NULL);
   g_object_set (queue, "max-size-buffers", 0, NULL);
   g_object_set (queue, "max-size-time", 0, NULL);
   g_object_set (queue, "max-size-bytes", 0, NULL);
-  g_object_set (queue, "min-threshold-time", DEFAULT_MIN_THRESHOLD_TIME, NULL);
+  g_object_set (queue, "min-threshold-time", opts->nsecs, NULL);
   g_object_set (valve, "drop", TRUE, NULL);
 
   bus = gst_pipeline_get_bus (GST_PIPELINE (pipeline));

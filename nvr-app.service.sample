@@ -1,0 +1,10 @@
+[Unit]
+Description=NVR application
+
+[Service]
+Type=simple
+PIDFile=/var/run/nvr-app.pid
+ExecStart=/usr/local/bin/nvr-app --src <RTSP URI> --dst <DST PATH> --secs 5
+
+[Install]
+WantedBy=multi-user.target

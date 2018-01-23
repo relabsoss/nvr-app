@@ -1,4 +1,5 @@
 #include <glib.h>
+#include <glib/gstdio.h>
 #include <glib-unix.h>
 #include <glib/gprintf.h>
 #include "nvr-app.h"
@@ -6,157 +7,43 @@
 typedef struct _Context {
   const Options *opts;
   GMainLoop  *loop;
-  const gchar *src;
-  const gchar *dst;
   GstElement *pipeline;
   GstElement *source;
   GstElement *queue;
   GstElement *valve;
   GstElement *sink_source;
   GstElement *sink;
+  gchar *tmp_file;
 } Context;
 
 static void
-on_rtsp_pad_added (GstElement *element,
+  on_rtsp_pad_added (GstElement *element,
               GstPad     *pad,
-              gpointer    data)
-{
-  GstPad *sinkpad;
-  Context *context = (Context *) data;
-  GstElement *source = context->source;
-  GMainLoop *loop = context->loop;
-  GstPadLinkReturn ret;
-
-  g_print ("Dynamic pad created, linking source and queue.\n");
-
-  sinkpad = gst_element_get_static_pad (source, "sink");
-
-  ret = gst_pad_link (pad, sinkpad);
-
-  if (ret != GST_PAD_LINK_OK) {
-    g_printerr ("Linking pads error: %d\n", ret);
-    g_main_loop_quit (loop);
-  }
-
-  gst_object_unref (sinkpad);
-}
-
+              gpointer    data);
 
 static gboolean
-bus_call (GstBus     *bus,
+  bus_call (GstBus     *bus,
           GstMessage *msg,
-          gpointer    data)
-{
-  GMainLoop *loop = (GMainLoop *) data;
+          gpointer    data);
 
-  switch (GST_MESSAGE_TYPE (msg)) {
+static gboolean
+  on_start_recording(gpointer user_data);
 
-    case GST_MESSAGE_EOS:
-      g_print ("End of stream\n");
-      g_main_loop_quit (loop);
-      break;
+static gboolean
+  on_stop_recording(gpointer user_data);
 
-    case GST_MESSAGE_ERROR: {
-      gchar  *debug;
-      GError *error;
+static gboolean
+  on_stop(gpointer user_data);
 
-      gst_message_parse_error (msg, &error, &debug);
-      g_free (debug);
+static void
+  init_signal_handler(Context *context);
 
-      g_printerr ("Error: %s\n", error->message);
-      g_error_free (error);
+static gboolean
+  is_recording(const Context *context);
 
-      g_main_loop_quit (loop);
-      break;
-    }
-    default:
-      break;
-  }
-
-  return TRUE;
-}
-
-gboolean
-on_start_recording(gpointer user_data) {
-  g_print ("Start recording handler called\n");
-
-  Context *context = (Context *) user_data;
-  GstElement *pipeline = context->pipeline;
-  GstElement *queue = context->queue;
-  GstElement *valve = context->valve;
-  GstElement *sink_source = context->sink_source;
-  GstElement *sink = context->sink = gst_element_factory_make ("filesink", NULL);
-
-  GDateTime *dt = g_date_time_new_now_local();
-
-  g_object_set (sink, "location", g_date_time_format(dt, "file_%d_%m_%Y_%H_%M_%S.mp4"), NULL);
-  if (gst_bin_add (GST_BIN( pipeline ), sink) != TRUE) {
-    g_printerr ("Sink not added to pipeline.\n");
-    return G_SOURCE_CONTINUE;
-  }
-  if (gst_element_link (sink_source, sink) != TRUE) {
-    g_printerr ("Sink not linked.\n");
-    return G_SOURCE_CONTINUE;
-  }
-
-  gst_element_set_state(sink, GST_STATE_PLAYING);
-
-  g_object_set (valve, "drop", FALSE, NULL);
-  g_object_set (queue, "min-threshold-time", 0, NULL);
-
-  g_date_time_unref(dt);
-
-  return G_SOURCE_CONTINUE;
-}
-
-gboolean
-on_stop_recording(gpointer user_data) {
-  g_print ("Stop recording handler called\n");
-
-  Context *context = (Context *) user_data;
-  GstElement *pipeline = context->pipeline;
-  GstElement *queue = context->queue;
-  GstElement *valve = context->valve;
-  GstElement *sink_source = context->sink_source;
-  GstElement *sink  = context->sink;
-
-  gst_object_ref(sink);
-  gst_element_unlink(sink_source, sink);
-  gst_element_set_state(sink, GST_STATE_NULL);
-  if (gst_bin_remove (GST_BIN( pipeline ), sink) != TRUE) {
-    g_printerr ("Sink not removed from pipeline.\n");
-    return G_SOURCE_CONTINUE;
-  }
-  gst_object_unref(sink);
-
-  context->sink = 0;
-
-  g_object_set (queue, "min-threshold-time", context->opts->nsecs, NULL);
-  g_object_set (valve, "drop", TRUE, NULL);
-
-  return G_SOURCE_CONTINUE;
-}
-
-gboolean
-on_stop(gpointer user_data) {
-  g_print ("Stop signal handler called\n");
-
-  GMainLoop *loop = ((Context *) user_data)->loop;
-  g_main_loop_quit (loop);
-
-  return G_SOURCE_CONTINUE;
-}
-
-void
-init_signal_handler(Context *context) {
-  g_unix_signal_add(SIGUSR1, on_start_recording, context);
-  g_unix_signal_add(SIGUSR2, on_stop_recording,  context);
-  g_unix_signal_add(SIGINT, on_stop,  context);
-  g_unix_signal_add(SIGTERM, on_stop,  context);
-}
 
 int start_nvr(const Options *opts) {
-  Context context;
+  Context context = { opts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
   context.opts = opts;
   GMainLoop  *loop;
 
@@ -232,4 +119,174 @@ int start_nvr(const Options *opts) {
   g_source_remove (bus_watch_id);
   g_main_loop_unref (loop);
   return 0;
+}
+
+static void
+on_rtsp_pad_added (GstElement *element,
+              GstPad     *pad,
+              gpointer    data)
+{
+  GstPad *sinkpad;
+  Context *context = (Context *) data;
+  GstElement *source = context->source;
+  GMainLoop *loop = context->loop;
+  GstPadLinkReturn ret;
+
+  g_print ("Dynamic pad created, linking source and queue.\n");
+
+  sinkpad = gst_element_get_static_pad (source, "sink");
+
+  ret = gst_pad_link (pad, sinkpad);
+
+  if (ret != GST_PAD_LINK_OK) {
+    g_printerr ("Linking pads error: %d\n", ret);
+    g_main_loop_quit (loop);
+  }
+
+  gst_object_unref (sinkpad);
+}
+
+
+static gboolean
+bus_call (GstBus     *bus,
+          GstMessage *msg,
+          gpointer    data)
+{
+  GMainLoop *loop = (GMainLoop *) data;
+
+  switch (GST_MESSAGE_TYPE (msg)) {
+
+    case GST_MESSAGE_EOS:
+      g_print ("End of stream\n");
+      g_main_loop_quit (loop);
+      break;
+
+    case GST_MESSAGE_ERROR: {
+      gchar  *debug;
+      GError *error;
+
+      gst_message_parse_error (msg, &error, &debug);
+      g_free (debug);
+
+      g_printerr ("Error: %s\n", error->message);
+      g_error_free (error);
+
+      g_main_loop_quit (loop);
+      break;
+    }
+    default:
+      break;
+  }
+
+  return TRUE;
+}
+
+static gboolean
+on_start_recording(gpointer user_data) {
+  g_print ("Start recording handler called\n");
+
+  Context *context = (Context *) user_data;
+
+  if (is_recording(context)) return G_SOURCE_CONTINUE;
+
+  GstElement *pipeline = context->pipeline;
+  GstElement *queue = context->queue;
+  GstElement *valve = context->valve;
+  GstElement *sink_source = context->sink_source;
+  GstElement *sink = context->sink = gst_element_factory_make ("filesink", NULL);
+
+  GDateTime *dt = g_date_time_new_now_local();
+  if (context->tmp_file != NULL) g_free(context->tmp_file);
+  gchar *filename = g_date_time_format(dt, "file_%d_%m_%Y_%H_%M_%S.mp4");
+  context->tmp_file = g_build_path("/", context->opts->tmp_dst, filename, NULL);
+  g_object_set (sink, "location", context->tmp_file, NULL);
+  if (gst_bin_add (GST_BIN( pipeline ), sink) != TRUE) {
+    g_printerr ("Sink not added to pipeline.\n");
+    return G_SOURCE_CONTINUE;
+  }
+  if (gst_element_link (sink_source, sink) != TRUE) {
+    g_printerr ("Sink not linked.\n");
+    return G_SOURCE_CONTINUE;
+  }
+
+  gst_element_set_state(sink, GST_STATE_PLAYING);
+
+  g_object_set (valve, "drop", FALSE, NULL);
+  g_object_set (queue, "min-threshold-time", 0, NULL);
+
+  g_date_time_unref(dt);
+  g_free(filename);
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+on_stop_recording(gpointer user_data) {
+  g_print ("Stop recording handler called\n");
+
+  Context *context = (Context *) user_data;
+
+  if (!is_recording(context)) return G_SOURCE_CONTINUE;
+
+  GstElement *pipeline = context->pipeline;
+  GstElement *queue = context->queue;
+  GstElement *valve = context->valve;
+  GstElement *sink_source = context->sink_source;
+  GstElement *sink  = context->sink;
+
+  gst_object_ref(sink);
+  gst_element_unlink(sink_source, sink);
+  gst_element_set_state(sink, GST_STATE_NULL);
+  if (gst_bin_remove (GST_BIN( pipeline ), sink) != TRUE) {
+    g_printerr ("Sink not removed from pipeline.\n");
+    return G_SOURCE_CONTINUE;
+  }
+  gst_object_unref(sink);
+
+  context->sink = 0;
+
+  g_object_set (queue, "min-threshold-time", context->opts->nsecs, NULL);
+  g_object_set (valve, "drop", TRUE, NULL);
+
+  if (context->tmp_file == NULL) {
+    g_printerr("Temp file not defined");
+  } else {
+    gchar *name = g_path_get_basename(context->tmp_file);
+    gchar *new_path = g_build_path("/", context->opts->dst, name, NULL);
+    if (g_rename(context->tmp_file, new_path) != 0){
+      g_printerr("Cant rename file %s to %s", context->tmp_file, new_path);
+    }
+    g_free(name);
+    g_free(new_path);
+  }
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+on_stop(gpointer user_data) {
+  g_print ("Stop signal handler called\n");
+
+  GMainLoop *loop = ((Context *) user_data)->loop;
+  g_main_loop_quit (loop);
+
+  return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+is_recording(const Context *context) {
+  guint64 val;
+
+  GstElement *queue = context->queue;
+  g_object_get (queue, "min-threshold-time", &val, NULL);
+
+  return val == 0;
+}
+
+static void
+init_signal_handler(Context *context) {
+  g_unix_signal_add(SIGUSR1, on_start_recording, context);
+  g_unix_signal_add(SIGUSR2, on_stop_recording,  context);
+  g_unix_signal_add(SIGINT, on_stop,  context);
+  g_unix_signal_add(SIGTERM, on_stop,  context);
 }

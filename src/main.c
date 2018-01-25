@@ -41,17 +41,17 @@ main (int argc, char *argv[])
 
   if (opts.src == NULL) {
     g_printerr("SEC option must be set\n");
-    return -3;
+    return -2;
   }
 
   if (opts.dst == NULL) {
     g_printerr("DST option must be set\n");
-    return -4;
+    return -3;
   }
 
   if (secs < 0) {
     g_printerr("Secs options must be greater then 0. Actual %ld\n", secs);
-    return -2;
+    return -4;
   }
 
   opts.nsecs = secs == 0 ? TO_NSECS(5) : TO_NSECS(secs);

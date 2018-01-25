@@ -6,6 +6,7 @@
 
 typedef struct _Context {
   const Options *opts;
+  gboolean   is_ready;
   GMainLoop  *loop;
   GstElement *pipeline;
   GstElement *source;
@@ -43,7 +44,7 @@ static gboolean
 
 
 int start_nvr(const Options *opts) {
-  Context context = { opts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+  Context context = { opts, FALSE, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
   context.opts = opts;
   GMainLoop  *loop;
 
@@ -61,7 +62,7 @@ int start_nvr(const Options *opts) {
   loop = context.loop = g_main_loop_new (NULL, FALSE);
   init_signal_handler(&context);
 
-  g_print("PID: %d\n", getpid());
+  g_print("INFO: PID %d\n", getpid());
 
   /* Create the elements */
   source = gst_element_factory_make ("rtspsrc", NULL);
@@ -80,7 +81,6 @@ int start_nvr(const Options *opts) {
   }
 
   /* Modify the source's properties */
-  g_print("RTSP location is %s\n", opts->src);
   g_object_set (source, "location", opts->src, NULL);
   g_object_set (queue, "max-size-buffers", 0, NULL);
   g_object_set (queue, "max-size-time", 0, NULL);
@@ -132,7 +132,7 @@ on_rtsp_pad_added (GstElement *element,
   GMainLoop *loop = context->loop;
   GstPadLinkReturn ret;
 
-  g_print ("Dynamic pad created, linking source and queue.\n");
+  g_print ("DEBUG: Dynamic pad created, linking source and queue.\n");
 
   sinkpad = gst_element_get_static_pad (source, "sink");
 
@@ -142,6 +142,9 @@ on_rtsp_pad_added (GstElement *element,
     g_printerr ("Linking pads error: %d\n", ret);
     g_main_loop_quit (loop);
   }
+
+  context->is_ready = TRUE;
+  g_print("INFO: Started");
 
   gst_object_unref (sinkpad);
 }
@@ -157,7 +160,7 @@ bus_call (GstBus     *bus,
   switch (GST_MESSAGE_TYPE (msg)) {
 
     case GST_MESSAGE_EOS:
-      g_print ("End of stream\n");
+      g_print ("DEBUG: End of stream\n");
       g_main_loop_quit (loop);
       break;
 
@@ -168,7 +171,7 @@ bus_call (GstBus     *bus,
       gst_message_parse_error (msg, &error, &debug);
       g_free (debug);
 
-      g_printerr ("Error: %s\n", error->message);
+      g_printerr ("%s\n", error->message);
       g_error_free (error);
 
       g_main_loop_quit (loop);
@@ -183,10 +186,12 @@ bus_call (GstBus     *bus,
 
 static gboolean
 on_start_recording(gpointer user_data) {
-  g_print ("Start recording handler called\n");
-
   Context *context = (Context *) user_data;
 
+  if (!context->is_ready) {
+    g_printerr("ERROR: Not ready\n");
+    return G_SOURCE_CONTINUE;
+  }
   if (is_recording(context)) return G_SOURCE_CONTINUE;
 
   GstElement *pipeline = context->pipeline;
@@ -197,7 +202,7 @@ on_start_recording(gpointer user_data) {
 
   GDateTime *dt = g_date_time_new_now_local();
   if (context->tmp_file != NULL) g_free(context->tmp_file);
-  gchar *filename = g_date_time_format(dt, "file_%d_%m_%Y_%H_%M_%S.mp4");
+  gchar *filename = g_date_time_format(dt, "file_%Y_%m_%d_%H_%M_%S.mp4");
   context->tmp_file = g_build_path("/", context->opts->tmp_dst, filename, NULL);
   g_object_set (sink, "location", context->tmp_file, NULL);
   if (gst_bin_add (GST_BIN( pipeline ), sink) != TRUE) {
@@ -217,13 +222,13 @@ on_start_recording(gpointer user_data) {
   g_date_time_unref(dt);
   g_free(filename);
 
+  g_print ("INFO: Start recording\n");
+
   return G_SOURCE_CONTINUE;
 }
 
 static gboolean
 on_stop_recording(gpointer user_data) {
-  g_print ("Stop recording handler called\n");
-
   Context *context = (Context *) user_data;
 
   if (!is_recording(context)) return G_SOURCE_CONTINUE;
@@ -249,23 +254,27 @@ on_stop_recording(gpointer user_data) {
   g_object_set (valve, "drop", TRUE, NULL);
 
   if (context->tmp_file == NULL) {
-    g_printerr("Temp file not defined");
+    g_printerr("Temp file not defined\n");
   } else {
     gchar *name = g_path_get_basename(context->tmp_file);
     gchar *new_path = g_build_path("/", context->opts->dst, name, NULL);
     if (g_rename(context->tmp_file, new_path) != 0){
-      g_printerr("Cant rename file %s to %s", context->tmp_file, new_path);
+      g_printerr("Cant rename file %s to %s\n", context->tmp_file, new_path);
+    } else {
+      g_print("INFO: File path %s\n", new_path);
     }
     g_free(name);
     g_free(new_path);
   }
+
+  g_print ("INFO: Stop recording\n");
 
   return G_SOURCE_CONTINUE;
 }
 
 static gboolean
 on_stop(gpointer user_data) {
-  g_print ("Stop signal handler called\n");
+  g_print ("INFO: Stop signal\n");
 
   GMainLoop *loop = ((Context *) user_data)->loop;
   g_main_loop_quit (loop);

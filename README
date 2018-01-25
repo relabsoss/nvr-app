@@ -7,4 +7,4 @@ Application handles signals:
 
 Video recorded with 5 seconds seek.
 
-Video file name template is <file_%d_%m_%Y_%H_%M_%S.mp4>.
+Video file name template is <file_%Y_%m_%d_%H_%M_%S.mp4>.

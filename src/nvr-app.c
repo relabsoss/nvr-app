@@ -144,7 +144,7 @@ on_rtsp_pad_added (GstElement *element,
   }
 
   context->is_ready = TRUE;
-  g_print("INFO: Started");
+  g_print("INFO: Started\n");
 
   gst_object_unref (sinkpad);
 }
@@ -189,7 +189,7 @@ on_start_recording(gpointer user_data) {
   Context *context = (Context *) user_data;
 
   if (!context->is_ready) {
-    g_printerr("ERROR: Not ready\n");
+    g_printerr("Not ready\n");
     return G_SOURCE_CONTINUE;
   }
   if (is_recording(context)) return G_SOURCE_CONTINUE;
